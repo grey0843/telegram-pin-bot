@@ -1,4 +1,6 @@
 import os
+import asyncio
+from aiohttp import web
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -8,29 +10,23 @@ from telegram.ext import (
     filters,
 )
 
-# Aapka bot token
 BOT_TOKEN = "8518027565:AAGJBIU5S55Wankg7uSa6JFiD4HlTcalmFs"
-
-# Pin Duration: 1 ghanta = 3600 seconds
-PIN_DURATION = 3600  
+PIN_DURATION = 3600  # 1 hour
 
 
 async def start_cycle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
 
-    # Private chat me block karein
     if chat.type == "private":
-        await update.message.reply_text("Ye bot sirf groups me kaam karta hai. Mujhe apne group me add karke admin banayein.")
+        await update.message.reply_text("Ye bot sirf groups me kaam karta hai. Mujhe group me add karke admin banayein.")
         return
 
-    # Check karein command dene wala group admin hai ya nahi
     chat_member = await context.bot.get_chat_member(chat.id, user.id)
     if chat_member.status not in ["creator", "administrator"]:
         await update.message.reply_text("❌ Ye command sirf group admins use kar sakte hain.")
         return
 
-    # Is group ke liye auto-pin on karein
     context.chat_data["is_active"] = True
     context.chat_data["waiting_for_pin"] = True
 
@@ -53,16 +49,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_active = context.chat_data.get("is_active", False)
     waiting_for_pin = context.chat_data.get("waiting_for_pin", False)
 
-    # Agar cycle on hai aur next message ka wait hai
     if is_active and waiting_for_pin:
-        # Bot ke messages ko ignore karein
         if msg.from_user and msg.from_user.is_bot:
             return
 
         context.chat_data["waiting_for_pin"] = False
         context.chat_data["current_msg_id"] = msg.message_id
 
-        # Message pin karein
         try:
             await context.bot.pin_chat_message(
                 chat_id=chat.id,
@@ -72,12 +65,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await context.bot.send_message(
                 chat_id=chat.id,
-                text="⚠️ Message pin nahi ho paya. Kripya check karein ki bot ko group me 'Pin Messages' permission di gayi hai."
+                text="⚠️ Message pin nahi ho paya. Check karein ki bot ke paas 'Pin Messages' permission hai."
             )
             context.chat_data["waiting_for_pin"] = True
             return
 
-        # Timer lagayein unpin karne ke liye
         context.job_queue.run_once(
             unpin_and_repeat,
             when=PIN_DURATION,
@@ -91,13 +83,11 @@ async def unpin_and_repeat(context: ContextTypes.DEFAULT_TYPE):
     chat_id = job.chat_id
     msg_id = job.data
 
-    # Purana message unpin karein
     try:
         await context.bot.unpin_chat_message(chat_id=chat_id, message_id=msg_id)
     except Exception as e:
-        print(f"Unpin failed in chat {chat_id}: {e}")
+        print(f"Unpin failed: {e}")
 
-    # Agar cycle band nahi ki gayi hai toh agla message announce karein
     chat_data = context.application.chat_data.get(chat_id, {})
     if chat_data.get("is_active", False):
         chat_data["waiting_for_pin"] = True
@@ -126,17 +116,38 @@ async def stop_cycle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🛑 Auto-Pin cycle band kar di gayi hai.")
 
 
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+async def handle_ping(request):
+    return web.Response(text="Bot is running active!")
 
+
+async def run():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start_cycle", start_cycle))
     app.add_handler(CommandHandler("stop_cycle", stop_cycle))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
-    print("Bot is successfully running...")
-    app.run_polling()
+    # Chhota Web Server jo Render ko port dega
+    server = web.Application()
+    server.router.add_get("/", handle_ping)
+    runner = web.AppRunner(server)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
+    # Telegram bot start
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+
+    while True:
+        await asyncio.sleep(3600)
+
+
+def main():
+    asyncio.run(run())
 
 
 if __name__ == "__main__":
     main()
-  
+    
