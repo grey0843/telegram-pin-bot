@@ -30,12 +30,9 @@ async def start_cycle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.chat_data["is_active"] = True
     context.chat_data["waiting_for_pin"] = True
 
-    hours = PIN_DURATION // 3600
-    time_text = f"{hours} hour(s)" if hours >= 1 else f"{PIN_DURATION} seconds"
-
     await context.bot.send_message(
         chat_id=chat.id,
-        text=f"📢 **Notification:** Next message will be pinned for {time_text}!"
+        text="Next message will be pinned for 1 hour."
     )
 
 
@@ -91,12 +88,10 @@ async def unpin_and_repeat(context: ContextTypes.DEFAULT_TYPE):
     chat_data = context.application.chat_data.get(chat_id, {})
     if chat_data.get("is_active", False):
         chat_data["waiting_for_pin"] = True
-        hours = PIN_DURATION // 3600
-        time_text = f"{hours} hour(s)" if hours >= 1 else f"{PIN_DURATION} seconds"
 
         await context.bot.send_message(
             chat_id=chat_id,
-            text=f"⏳ Time complete! Agla message fir se {time_text} ke liye pin hoga!"
+            text="Next message will be pinned for 1 hour."
         )
 
 
@@ -113,7 +108,7 @@ async def stop_cycle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.chat_data["is_active"] = False
     context.chat_data["waiting_for_pin"] = False
-    await update.message.reply_text("🛑 Auto-Pin cycle band kar di gayi hai.")
+    await update.message.reply_text("Auto-Pin cycle stopped.")
 
 
 async def handle_ping(request):
@@ -126,7 +121,6 @@ async def run():
     app.add_handler(CommandHandler("stop_cycle", stop_cycle))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
-    # Chhota Web Server jo Render ko port dega
     server = web.Application()
     server.router.add_get("/", handle_ping)
     runner = web.AppRunner(server)
@@ -135,7 +129,6 @@ async def run():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    # Telegram bot start
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
